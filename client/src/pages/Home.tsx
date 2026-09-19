@@ -1,33 +1,34 @@
+import { ArrowRight, BookOpenCheck, BrainCircuit, FileText, LockKeyhole, Sparkles, WandSparkles } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import Workspace, { LandingAuthButton } from "@/pages/Workspace";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
+const features = [
+  { icon: FileText, number: "01", title: "Summarize notes & PDFs", copy: "Find the signal in long material with a clear, structured study guide." },
+  { icon: WandSparkles, number: "02", title: "Make hard ideas click", copy: "Turn dense explanations into a simpler path back to the important parts." },
+  { icon: BrainCircuit, number: "03", title: "Practice with MCQs", copy: "Generate five grounded questions to check what actually stuck." },
+];
+
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const { user, loading, error } = useAuth();
+  if (loading) return <div className="grid min-h-screen place-items-center bg-[#f8faf5] text-[#6b8274]"><Sparkles className="size-6 animate-pulse" /></div>;
+  if (user) return <Workspace />;
 
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  return <div className="min-h-screen overflow-hidden bg-[#f8faf5] text-[#17382f]">
+    <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8 sm:py-7">
+      <a href="/" className="flex items-center gap-3" aria-label="StudyMate AI home"><span className="grid size-10 place-items-center rounded-xl bg-[#1d473d] text-[#d9ed9b] shadow-[0_8px_18px_rgba(29,71,61,0.16)]"><Sparkles className="size-5" /></span><span className="font-display text-xl font-bold tracking-[-0.05em]">StudyMate <span className="text-[#6c9850]">AI</span></span></a>
+      <div className="flex items-center gap-3"><span className="hidden text-sm text-[#6d8176] sm:inline">A calmer way to study</span><LandingAuthButton /></div>
+    </header>
 
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
-  );
+    <main>
+      <section className="relative mx-auto grid max-w-6xl gap-12 px-5 pb-20 pt-10 sm:px-8 sm:pb-28 sm:pt-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-20">
+        <div className="relative z-10"><div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#d9e5c5] bg-[#eef5dc] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.15em] text-[#648451]"><span className="size-1.5 rounded-full bg-[#9fbe4f]" /> Built for focused study</div><h1 className="max-w-2xl font-display text-[3.45rem] font-bold leading-[0.98] tracking-[-0.075em] text-[#17382f] sm:text-7xl">Your notes, made <span className="relative inline-block text-[#6a9551]">useful<span className="absolute -bottom-2 left-1/4 h-2 w-2/3 rounded-full bg-[#d7ea8e]" /></span>.</h1><p className="mt-7 max-w-xl text-lg leading-8 text-[#667e71] sm:text-xl">Turn your study material into simple, useful practice. StudyMate AI helps you move from “I should review that” to “I understand it.”</p><div className="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center"><LandingAuthButton /><span className="flex items-center gap-2 text-xs font-medium text-[#84988b]"><LockKeyhole className="size-3.5" /> Your study library stays private</span></div>{error && <p className="mt-4 text-sm text-[#ad6e5b]">Sign-in is temporarily unavailable. Please try again.</p>}</div>
+        <div className="relative min-h-[390px] sm:min-h-[460px]"><div className="absolute inset-x-8 top-6 h-[340px] rotate-3 rounded-[32px] bg-[#e6efca] sm:inset-x-6 sm:h-[410px]" /><div className="absolute inset-x-3 top-0 rounded-[32px] border border-[#dfe8d5] bg-white p-5 shadow-[0_28px_70px_rgba(43,88,59,0.14)] sm:inset-x-0 sm:p-7"><div className="flex items-center justify-between border-b border-[#edf1e9] pb-5"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-xl bg-[#f7ece6] text-[#bb7154]"><FileText className="size-4" /></div><div><p className="text-sm font-bold text-[#23483c]">Cell Biology — Week 4</p><p className="mt-1 text-xs text-[#93a298]">Summary ready</p></div></div><span className="rounded-full bg-[#eef5dc] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#688a58]">PDF</span></div><div className="mt-6"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#1d473d] text-[#d9ed9b]"><BookOpenCheck className="size-4" /></span><div><p className="font-display font-bold text-[#23483c]">The short version</p><p className="text-xs text-[#93a298]">A clearer way back into your notes</p></div></div><div className="mt-5 space-y-3"><div className="h-2 w-full rounded-full bg-[#edf1e9]" /><div className="h-2 w-[92%] rounded-full bg-[#edf1e9]" /><div className="h-2 w-[76%] rounded-full bg-[#edf1e9]" /><div className="mt-5 h-2 w-[88%] rounded-full bg-[#dcebc4]" /><div className="h-2 w-[63%] rounded-full bg-[#dcebc4]" /></div></div><div className="mt-7 rounded-2xl bg-[#f0f6dc] p-4"><div className="flex items-center gap-2 text-xs font-bold text-[#4d734c]"><BrainCircuit className="size-3.5" /> Practice set ready</div><p className="mt-2 text-sm leading-6 text-[#557361]">5 questions based only on your material.</p></div></div><div className="absolute -bottom-4 -left-2 flex items-center gap-3 rounded-2xl border border-[#e3eadb] bg-white px-4 py-3 shadow-[0_16px_30px_rgba(43,88,59,0.12)] sm:-left-8"><div className="grid size-8 place-items-center rounded-xl bg-[#fff3df] text-[#bb7b3f]"><Sparkles className="size-4" /></div><div><p className="text-xs font-bold text-[#315544]">Less rereading</p><p className="text-[11px] text-[#96a69b]">More remembering</p></div></div></div>
+      </section>
+
+      <section className="border-y border-[#e3eadb] bg-white/60"><div className="mx-auto grid max-w-6xl gap-px px-5 sm:px-8 md:grid-cols-3">{features.map(({ icon: Icon, number, title, copy }) => <div key={number} className="border-[#e3eadb] py-8 md:border-r md:px-8 md:py-12 first:md:pl-0 last:md:border-r-0"><div className="flex items-start justify-between"><div className="grid size-11 place-items-center rounded-2xl bg-[#eef5dc] text-[#6b9552]"><Icon className="size-5" /></div><span className="font-mono text-xs text-[#a2b19f]">{number}</span></div><h2 className="mt-6 font-display text-xl font-bold tracking-[-0.04em]">{title}</h2><p className="mt-2 max-w-xs text-sm leading-6 text-[#71877a]">{copy}</p></div>)}</div></section>
+
+      <section className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-16 sm:flex-row sm:items-center sm:px-8 sm:py-20"><div><p className="text-sm font-bold uppercase tracking-[0.15em] text-[#76945f]">Start small</p><h2 className="mt-3 max-w-lg font-display text-3xl font-bold leading-tight tracking-[-0.06em] sm:text-4xl">One PDF. One clearer next step.</h2></div><div className="flex items-center gap-2 text-sm font-semibold text-[#65836e]">No clutter, just study tools <ArrowRight className="size-4" /></div></section>
+    </main>
+    <footer className="border-t border-[#e3eadb] px-5 py-6 sm:px-8"><div className="mx-auto flex max-w-6xl flex-col gap-2 text-xs text-[#92a198] sm:flex-row sm:items-center sm:justify-between"><span>StudyMate AI · V1</span><span>Summaries and questions are generated from your uploaded material.</span></div></footer>
+  </div>;
 }
