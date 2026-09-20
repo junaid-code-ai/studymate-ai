@@ -2,6 +2,10 @@ import { PDFParse } from "pdf-parse";
 import { invokeLLM } from "./_core/llm";
 import { Mcq } from "../drizzle/schema";
 
+const SUMMARY_CHUNK_SIZE = 30_000;
+const MAX_SUMMARY_CHUNKS = 20;
+export const MAX_PROCESSABLE_TEXT_LENGTH = SUMMARY_CHUNK_SIZE * MAX_SUMMARY_CHUNKS;
+
 const summarySchema = {
   type: "object",
   properties: {
@@ -72,6 +76,26 @@ function parseJsonResponse<T>(content: unknown): T {
   }
 }
 
+export function chunkText(text: string, chunkSize = SUMMARY_CHUNK_SIZE): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let end = Math.min(start + chunkSize, text.length);
+    if (end < text.length) {
+      const paragraphBreak = text.lastIndexOf("\n\n", end);
+      const sentenceBreak = text.lastIndexOf(". ", end);
+      const boundary = paragraphBreak > start + chunkSize * 0.6 ? paragraphBreak + 2 : sentenceBreak > start + chunkSize * 0.6 ? sentenceBreak + 2 : end;
+      end = boundary;
+    }
+    const chunk = text.slice(start, end).trim();
+    if (chunk) chunks.push(chunk);
+    start = end;
+  }
+
+  return chunks;
+}
+
 export async function extractPdfText(data: Buffer): Promise<string> {
   const parser = new PDFParse({ data });
   try {
@@ -82,27 +106,48 @@ export async function extractPdfText(data: Buffer): Promise<string> {
   }
 }
 
-export async function generateSummary(sourceText: string): Promise<string> {
+async function summarizeChunk(chunk: string, index: number, total: number): Promise<string> {
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
       {
         role: "system",
         content:
-          "You are a careful study assistant. Summarize only the provided source material. Do not add facts, examples, or conclusions that are not supported by the source. Return a clear Markdown summary with a short overview, descriptive headings, and bullet points where helpful.",
+          "You are a careful study assistant. Summarize only the provided source material. Do not add facts, examples, or conclusions that are not supported by the source. Preserve important definitions, relationships, dates, formulas, and examples. Return concise Markdown notes for this ordered section.",
       },
       {
         role: "user",
-        content: `SOURCE MATERIAL BEGIN\n${sourceText}\nSOURCE MATERIAL END\n\nCreate the study summary now.`,
+        content: `SOURCE SECTION ${index} OF ${total} BEGIN\n${chunk}\nSOURCE SECTION END\n\nSummarize this section for a later ordered synthesis.`,
       },
     ],
     response_format: {
       type: "json_schema",
-      json_schema: {
-        name: "study_summary",
-        strict: true,
-        schema: summarySchema,
+      json_schema: { name: "study_summary_section", strict: true, schema: summarySchema },
+    },
+  });
+
+  const parsed = parseJsonResponse<{ summary: string }>(response.choices[0]?.message?.content);
+  if (!parsed.summary?.trim()) throw new Error("The AI returned an empty section summary");
+  return parsed.summary.trim();
+}
+
+async function synthesizeSummary(sectionSummaries: string[]): Promise<string> {
+  const response = await invokeLLM({
+    model: "gpt-5-mini",
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a careful study assistant. Synthesize the ordered section notes into one clear Markdown study summary. Use only the supplied section notes, preserve their order and important context, and do not invent information. Include a short overview, descriptive headings, and bullet points where helpful.",
       },
+      {
+        role: "user",
+        content: sectionSummaries.map((summary, index) => `SECTION ${index + 1}\n${summary}`).join("\n\n"),
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: "study_summary", strict: true, schema: summarySchema },
     },
   });
 
@@ -111,7 +156,27 @@ export async function generateSummary(sourceText: string): Promise<string> {
   return parsed.summary.trim();
 }
 
+export async function generateSummary(sourceText: string): Promise<string> {
+  const chunks = chunkText(sourceText);
+  if (chunks.length === 0) throw new Error("The source material is empty");
+  if (chunks.length > MAX_SUMMARY_CHUNKS) {
+    throw new Error("The source material is too large to process safely");
+  }
+  if (chunks.length === 1) return summarizeChunk(chunks[0], 1, 1);
+
+  const sectionSummaries: string[] = [];
+  const batchSize = 4;
+  for (let index = 0; index < chunks.length; index += batchSize) {
+    const batch = await Promise.all(
+      chunks.slice(index, index + batchSize).map((chunk, batchIndex) => summarizeChunk(chunk, index + batchIndex + 1, chunks.length)),
+    );
+    sectionSummaries.push(...batch);
+  }
+  return synthesizeSummary(sectionSummaries);
+}
+
 export async function generateMcqs(sourceText: string): Promise<Mcq[]> {
+  const boundedSource = sourceText.slice(0, 120_000);
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
@@ -122,16 +187,12 @@ export async function generateMcqs(sourceText: string): Promise<Mcq[]> {
       },
       {
         role: "user",
-        content: `SOURCE MATERIAL BEGIN\n${sourceText}\nSOURCE MATERIAL END\n\nCreate five material-grounded MCQs now.`,
+        content: `SOURCE MATERIAL BEGIN\n${boundedSource}\nSOURCE MATERIAL END\n\nCreate five material-grounded MCQs now.`,
       },
     ],
     response_format: {
       type: "json_schema",
-      json_schema: {
-        name: "study_mcqs",
-        strict: true,
-        schema: mcqSchema,
-      },
+      json_schema: { name: "study_mcqs", strict: true, schema: mcqSchema },
     },
   });
 

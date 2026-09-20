@@ -92,7 +92,7 @@ function UploadCard({ onUpload }: { onUpload: (file: File) => Promise<void> }) {
           </Button>
         </div>
       </div>
-      <p className="relative mt-4 text-xs font-medium uppercase tracking-[0.16em] text-[#78906b]">PDF only · up to 10 MB · text-based PDFs in V1</p>
+      <p className="relative mt-4 text-xs font-medium uppercase tracking-[0.16em] text-[#78906b]">PDF only · up to 50 MB · text-based PDFs in V1</p>
     </div>
   );
 }
@@ -116,8 +116,8 @@ export default function Workspace() {
       toast.error("Please choose a PDF file");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("That PDF is too large", { description: "Choose a file under 10 MB for V1." });
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("That PDF exceeds the 50 MB limit", { description: "Choose a smaller file to continue." });
       return;
     }
 

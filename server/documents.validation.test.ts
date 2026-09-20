@@ -24,6 +24,22 @@ function createContext(user: User | null): TrpcContext {
 }
 
 describe("documents validation", () => {
+  it("rejects uploads over the 50 MB limit with a clear message", async () => {
+    const caller = appRouter.createCaller(createContext(sampleUser));
+
+    await expect(
+      caller.documents.upload({
+        fileName: "large-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 50 * 1024 * 1024 + 1,
+        dataBase64: "dGVzdA==",
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "This PDF exceeds the 50 MB limit. Choose a smaller file.",
+    });
+  });
+
   it("protects document upload from unauthenticated callers", async () => {
     const caller = appRouter.createCaller(createContext(null));
 

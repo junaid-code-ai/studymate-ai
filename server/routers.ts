@@ -10,12 +10,16 @@ import {
   getDocumentForUser,
   listDocumentsForUser,
   updateDocumentMcqs,
-  updateDocumentSummary,
 } from "./db";
-import { extractPdfText, generateMcqs, generateSummary } from "./study";
+import { extractPdfText, generateMcqs, generateSummary, MAX_PROCESSABLE_TEXT_LENGTH } from "./study";
 import { Mcq } from "../drizzle/schema";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+function estimateBase64Bytes(value: string) {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.floor((value.length * 3) / 4) - padding;
+}
 
 function parseMcqs(mcqsJson: string | null): Mcq[] {
   if (!mcqsJson) return [];
@@ -68,19 +72,29 @@ export const appRouter = router({
         z.object({
           fileName: z.string().trim().min(1).max(255),
           mimeType: z.string().trim().min(1).max(128),
-          sizeBytes: z.number().int().positive().max(MAX_FILE_SIZE),
+          sizeBytes: z.number().int().positive(),
           dataBase64: z.string().min(1),
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        if (input.sizeBytes > MAX_FILE_SIZE) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This PDF exceeds the 50 MB limit. Choose a smaller file." });
+        }
+        if (estimateBase64Bytes(input.dataBase64) > MAX_FILE_SIZE) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This PDF exceeds the 50 MB limit. Choose a smaller file." });
+        }
         const isPdfName = input.fileName.toLowerCase().endsWith(".pdf");
         if (input.mimeType !== "application/pdf" && !isPdfName) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Only PDF files are supported." });
         }
 
         const data = Buffer.from(input.dataBase64, "base64");
-        if (data.length === 0 || data.length > MAX_FILE_SIZE || data.length !== input.sizeBytes) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "The PDF is empty, too large, or incomplete." });
+        if (data.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "The PDF is empty." });
+        if (data.length > MAX_FILE_SIZE) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This PDF exceeds the 50 MB limit. Choose a smaller file." });
+        }
+        if (data.length !== input.sizeBytes) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "The PDF upload was incomplete. Please try again." });
         }
         if (data.subarray(0, 4).toString() !== "%PDF") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "That file does not look like a valid PDF." });
@@ -99,6 +113,12 @@ export const appRouter = router({
             message: "We could not find enough readable text in that PDF. Scanned PDFs are not supported in V1.",
           });
         }
+        if (extractedText.length > MAX_PROCESSABLE_TEXT_LENGTH) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This PDF contains more readable text than V1 can safely process. Try splitting it into smaller PDFs.",
+          });
+        }
 
         const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 180) || "study-material.pdf";
         const fileKey = `${ctx.user.id}/documents/${crypto.randomUUID()}-${safeName}`;
@@ -106,7 +126,7 @@ export const appRouter = router({
 
         let summary: string;
         try {
-          summary = await generateSummary(extractedText.slice(0, 120000));
+          summary = await generateSummary(extractedText);
         } catch (error) {
           console.error("[StudyMate] Summary generation failed", error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The PDF uploaded, but its summary could not be generated. Please try again." });
@@ -118,7 +138,7 @@ export const appRouter = router({
           fileKey: stored.key,
           fileUrl: stored.url,
           fileSize: data.length,
-          extractedText: extractedText.slice(0, 250000),
+          extractedText,
           summary,
           mcqsJson: null,
         });
@@ -131,7 +151,7 @@ export const appRouter = router({
         const document = await getDocumentForUser(input.id, ctx.user.id);
         if (!document) throw new TRPCError({ code: "NOT_FOUND", message: "Study document not found." });
         try {
-          const questions = await generateMcqs(document.extractedText.slice(0, 120000));
+          const questions = await generateMcqs(document.extractedText);
           await updateDocumentMcqs(document.id, JSON.stringify(questions));
           return { ...publicDocument(document), mcqs: questions };
         } catch (error) {
