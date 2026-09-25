@@ -9,6 +9,7 @@ import {
   claimDocumentProcessing,
   createDocument,
   getDocumentForUser,
+  getDocumentForProcessing,
   listDocumentsForUser,
   updateDocumentMcqs,
   updateDocumentProcessing,
@@ -20,7 +21,7 @@ export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const STORAGE_UPLOAD_TIMEOUT_MS = 120_000;
 const STORAGE_PROCESS_TIMEOUT_MS = 45_000;
 const EXTRACTION_TIMEOUT_MS = 60_000;
-const SUMMARY_TIMEOUT_MS = 75_000;
+const SUMMARY_TIMEOUT_MS = 60_000;
 
 function estimateBase64Bytes(value: string) {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
@@ -174,7 +175,7 @@ export const appRouter = router({
     process: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
-        const existing = await getDocumentForUser(input.id, ctx.user.id);
+        const existing = await getDocumentForProcessing(input.id, ctx.user.id);
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Study document not found." });
         if (existing.processingStatus === "ready") return publicDocument(existing);
 
@@ -224,7 +225,7 @@ export const appRouter = router({
     generateMcqs: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
-        const document = await getDocumentForUser(input.id, ctx.user.id);
+        const document = await getDocumentForProcessing(input.id, ctx.user.id);
         if (!document) throw new TRPCError({ code: "NOT_FOUND", message: "Study document not found." });
         if (document.processingStatus !== "ready" || !document.extractedText) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "This document is not ready for MCQs yet." });

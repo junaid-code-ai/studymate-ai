@@ -29,15 +29,17 @@ function formatDate(value: Date | string) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function UploadCard({ onUpload }: { onUpload: (file: File) => Promise<void> }) {
+type UploadStage = "idle" | "reading" | "uploading";
+
+function UploadCard({ onUpload }: { onUpload: (file: File, setStage: (stage: UploadStage) => void) => Promise<void> }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadState, setUploadState] = useState<"idle" | "reading" | "uploading">("idle");
+  const [uploadState, setUploadState] = useState<UploadStage>("idle");
 
   const upload = async (file: File) => {
     setUploadState("reading");
     try {
-      await onUpload(file);
+      await onUpload(file, setUploadState);
     } catch {
       // The mutation's onError handler already shows the actionable message.
     } finally {
@@ -71,7 +73,7 @@ function UploadCard({ onUpload }: { onUpload: (file: File) => Promise<void> }) {
             {uploadState === "idle" ? <UploadCloud className="size-6" /> : <Loader2 className="size-6 animate-spin" />}
           </div>
           <div>
-            <p className="font-semibold text-[#17382f]">{uploadState === "idle" ? "Add a PDF to your study desk" : uploadState === "reading" ? "Reading your PDF…" : "Building your study guide…"}</p>
+            <p className="font-semibold text-[#17382f]">{uploadState === "idle" ? "Add a PDF to your study desk" : uploadState === "reading" ? "Reading your PDF…" : "Uploading your PDF…"}</p>
             <p className="mt-1 max-w-md text-sm leading-6 text-[#5f766b]">Upload notes, a textbook chapter, or a handout. We’ll turn it into a focused summary and practice set.</p>
           </div>
         </div>
@@ -113,7 +115,7 @@ export default function Workspace() {
     onError: (error) => toast.error("The PDF could not be uploaded", { description: error.message }),
   });
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (file: File, setStage: (stage: UploadStage) => void) => {
     if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
       toast.error("Please choose a PDF file");
       return;
@@ -123,6 +125,7 @@ export default function Workspace() {
       return;
     }
 
+    setStage("reading");
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -134,6 +137,7 @@ export default function Workspace() {
     });
     if (!dataUrl) return;
 
+    setStage("uploading");
     await uploadMutation.mutateAsync({
       fileName: file.name,
       mimeType: file.type || "application/pdf",

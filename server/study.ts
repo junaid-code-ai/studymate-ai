@@ -2,9 +2,10 @@ import { PDFParse } from "pdf-parse";
 import { invokeLLM } from "./_core/llm";
 import { Mcq } from "../drizzle/schema";
 
-const SUMMARY_CHUNK_SIZE = 30_000;
-const MAX_SUMMARY_CHUNKS = 20;
+const SUMMARY_CHUNK_SIZE = 60_000;
+const MAX_SUMMARY_CHUNKS = 10;
 export const MAX_PROCESSABLE_TEXT_LENGTH = SUMMARY_CHUNK_SIZE * MAX_SUMMARY_CHUNKS;
+const STUDY_MODEL = "claude-haiku-4-5";
 
 const summarySchema = {
   type: "object",
@@ -108,7 +109,7 @@ export async function extractPdfText(data: Buffer): Promise<string> {
 
 async function summarizeChunk(chunk: string, index: number, total: number, signal?: AbortSignal): Promise<string> {
   const response = await invokeLLM({
-    model: "gpt-5-mini",
+    model: STUDY_MODEL,
     messages: [
       {
         role: "system",
@@ -134,7 +135,7 @@ async function summarizeChunk(chunk: string, index: number, total: number, signa
 
 async function synthesizeSummary(sectionSummaries: string[], signal?: AbortSignal): Promise<string> {
   const response = await invokeLLM({
-    model: "gpt-5-mini",
+    model: STUDY_MODEL,
     messages: [
       {
         role: "system",
@@ -167,7 +168,7 @@ export async function generateSummary(sourceText: string, signal?: AbortSignal):
   if (chunks.length === 1) return summarizeChunk(chunks[0], 1, 1, signal);
 
   const sectionSummaries: string[] = [];
-  const batchSize = 4;
+  const batchSize = 6;
   for (let index = 0; index < chunks.length; index += batchSize) {
     const batch = await Promise.all(
       chunks.slice(index, index + batchSize).map((chunk, batchIndex) => summarizeChunk(chunk, index + batchIndex + 1, chunks.length, signal)),
@@ -180,7 +181,7 @@ export async function generateSummary(sourceText: string, signal?: AbortSignal):
 export async function generateMcqs(sourceText: string): Promise<Mcq[]> {
   const boundedSource = sourceText.slice(0, 120_000);
   const response = await invokeLLM({
-    model: "gpt-5-mini",
+    model: STUDY_MODEL,
     messages: [
       {
         role: "system",

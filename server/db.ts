@@ -100,6 +100,28 @@ export async function getDocumentForUser(documentId: number, userId: number) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db
+    .select({
+      id: documents.id,
+      fileName: documents.fileName,
+      fileSize: documents.fileSize,
+      summary: documents.summary,
+      mcqsJson: documents.mcqsJson,
+      processingStatus: documents.processingStatus,
+      processingError: documents.processingError,
+      createdAt: documents.createdAt,
+      updatedAt: documents.updatedAt,
+    })
+    .from(documents)
+    .where(and(eq(documents.id, documentId), eq(documents.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+/** Full document row for server-only extraction and MCQ generation. Never send this to the browser. */
+export async function getDocumentForProcessing(documentId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
     .select()
     .from(documents)
     .where(and(eq(documents.id, documentId), eq(documents.userId, userId)))
@@ -137,7 +159,7 @@ export async function updateDocumentProcessing(
 export async function claimDocumentProcessing(documentId: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
-  const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+  const staleBefore = new Date(Date.now() - 3 * 60 * 1000);
   const result = await db
     .update(documents)
     .set({ processingStatus: "processing", processingError: null, processingStartedAt: new Date() })

@@ -17,4 +17,9 @@ describe("study text chunking", () => {
   it("caps safe summary processing at a bounded text budget", () => {
     expect(MAX_PROCESSABLE_TEXT_LENGTH).toBe(600_000);
   });
+
+  it("uses larger chunks so large documents need fewer AI rounds", () => {
+    const chunks = chunkText("A".repeat(120_000));
+    expect(chunks.length).toBe(2);
+  });
 });

@@ -55,6 +55,14 @@ export default function DocumentPage() {
     }
   }, [document?.processingStatus, id, processMutation]);
 
+  useEffect(() => {
+    if (!isProcessing || processMutation.isPending) return;
+    const retryTimer = setInterval(() => {
+      if (!processMutation.isPending) processMutation.mutate({ id });
+    }, 20_000);
+    return () => clearInterval(retryTimer);
+  }, [id, isProcessing, processMutation.isPending]);
+
   return (
     <div className="min-h-screen bg-[#f8faf5] text-[#17382f]">
       <header className="border-b border-[#e3eadb] bg-[#f8faf5]/90 backdrop-blur">
