@@ -38,6 +38,8 @@ function UploadCard({ onUpload }: { onUpload: (file: File) => Promise<void> }) {
     setUploadState("reading");
     try {
       await onUpload(file);
+    } catch {
+      // The mutation's onError handler already shows the actionable message.
     } finally {
       setUploadState("idle");
     }
@@ -92,7 +94,7 @@ function UploadCard({ onUpload }: { onUpload: (file: File) => Promise<void> }) {
           </Button>
         </div>
       </div>
-      <p className="relative mt-4 text-xs font-medium uppercase tracking-[0.16em] text-[#78906b]">PDF only · up to 50 MB · text-based PDFs in V1</p>
+      <p className="relative mt-4 text-xs font-medium uppercase tracking-[0.16em] text-[#78906b]">PDF only · text-based PDFs · larger files may need splitting</p>
     </div>
   );
 }
@@ -105,10 +107,10 @@ export default function Workspace() {
   const uploadMutation = trpc.documents.upload.useMutation({
     onSuccess: async (document) => {
       await utils.documents.list.invalidate();
-      toast.success("Study guide ready", { description: `${document.fileName} is ready to explore.` });
+      toast.success("PDF uploaded", { description: `${document.fileName} is saved. Processing will continue on its document page.` });
       setLocation(`/app/${document.id}`);
     },
-    onError: (error) => toast.error("Upload didn’t finish", { description: error.message }),
+    onError: (error) => toast.error("The PDF could not be uploaded", { description: error.message }),
   });
 
   const handleUpload = async (file: File) => {
@@ -169,7 +171,7 @@ export default function Workspace() {
           </div>
           <div className="flex items-center gap-3 rounded-2xl border border-[#e3eadb] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(31,72,52,0.05)]">
             <div className="grid size-9 place-items-center rounded-xl bg-[#eef5dc] text-[#6a9551]"><BookOpen className="size-4" /></div>
-            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a9b8f]">Library</p><p className="font-display text-lg font-bold text-[#17382f]">{documents.length} {documents.length === 1 ? "document" : "documents"}</p></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#8a9b8f]">Library</p><p className="font-display text-lg font-bold text-[#17382f]">{documentsQuery.isLoading ? "Loading…" : documentsQuery.error ? "Unavailable" : `${documents.length} ${documents.length === 1 ? "document" : "documents"}`}</p></div>
           </div>
         </section>
 
@@ -192,7 +194,11 @@ export default function Workspace() {
               {documents.map((document) => (
                 <Link key={document.id} href={`/app/${document.id}`} className="group rounded-2xl border border-[#e3eadb] bg-white p-5 shadow-[0_8px_24px_rgba(31,72,52,0.04)] transition duration-200 hover:-translate-y-0.5 hover:border-[#b9cc9b] hover:shadow-[0_12px_30px_rgba(31,72,52,0.09)]">
                   <div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f7ece6] text-[#bb7154]"><FileText className="size-4" /></div><div className="min-w-0"><p className="truncate font-semibold text-[#23483c]">{document.fileName}</p><p className="mt-1 text-xs text-[#8a9b8f]">{formatSize(document.fileSize)} · {formatDate(document.createdAt)}</p></div></div><ArrowUpRight className="size-4 shrink-0 text-[#a3b0a7] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-[#5e8b4d]" /></div>
-                  <div className="mt-5 flex items-center gap-2 text-xs font-semibold text-[#6e9070]"><CheckCircle2 className="size-3.5" /> Summary ready <span className="text-[#c3cec7]">·</span> {document.mcqs.length ? `${document.mcqs.length} MCQs ready` : "Practice set waiting"}</div>
+                  <div className={`mt-5 flex items-center gap-2 text-xs font-semibold ${document.processingStatus === "failed" ? "text-[#a96855]" : document.processingStatus === "ready" ? "text-[#6e9070]" : "text-[#9a7a45]"}`}>
+                    {document.processingStatus === "ready" ? <CheckCircle2 className="size-3.5" /> : <Loader2 className="size-3.5 animate-spin" />}
+                    {document.processingStatus === "failed" ? "Processing needs another try" : document.processingStatus === "ready" ? "Summary ready" : "Processing…"}
+                    {document.processingStatus === "ready" && <><span className="text-[#c3cec7]">·</span> {document.mcqs.length ? `${document.mcqs.length} MCQs ready` : "Practice set waiting"}</>}
+                  </div>
                 </Link>
               ))}
             </div>

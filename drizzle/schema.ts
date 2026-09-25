@@ -32,9 +32,12 @@ export const documents = mysqlTable("documents", {
   fileKey: varchar("fileKey", { length: 512 }).notNull().unique(),
   fileUrl: varchar("fileUrl", { length: 1024 }).notNull(),
   fileSize: int("fileSize").notNull(),
-  extractedText: mediumtext("extractedText").notNull(),
+  extractedText: mediumtext("extractedText"),
   summary: mediumtext("summary"),
   mcqsJson: mediumtext("mcqsJson"),
+  processingStatus: varchar("processingStatus", { length: 32 }).default("uploaded").notNull(),
+  processingError: text("processingError"),
+  processingStartedAt: timestamp("processingStartedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -32,43 +32,45 @@ export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
+  timeoutMs = 120_000,
 ): Promise<{ key: string; url: string }> {
   const { forgeUrl, forgeKey } = getForgeConfig();
   const key = appendHashSuffix(normalizeKey(relKey));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  // 1. Get presigned PUT URL from Forge
-  const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
-  presignUrl.searchParams.set("path", key);
+  try {
+    const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
+    presignUrl.searchParams.set("path", key);
+    const presignResp = await fetch(presignUrl, {
+      headers: { Authorization: `Bearer ${forgeKey}` },
+      signal: controller.signal,
+    });
 
-  const presignResp = await fetch(presignUrl, {
-    headers: { Authorization: `Bearer ${forgeKey}` },
-  });
+    if (!presignResp.ok) {
+      const msg = await presignResp.text().catch(() => presignResp.statusText);
+      throw new Error(`Storage presign failed (${presignResp.status}): ${msg}`);
+    }
 
-  if (!presignResp.ok) {
-    const msg = await presignResp.text().catch(() => presignResp.statusText);
-    throw new Error(`Storage presign failed (${presignResp.status}): ${msg}`);
+    const { url: s3Url } = (await presignResp.json()) as { url: string };
+    if (!s3Url) throw new Error("Forge returned empty presign URL");
+
+    const blob =
+      typeof data === "string"
+        ? new Blob([data], { type: contentType })
+        : new Blob([data as any], { type: contentType });
+    const uploadResp = await fetch(s3Url, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: blob,
+      signal: controller.signal,
+    });
+
+    if (!uploadResp.ok) throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
+    return { key, url: `/manus-storage/${key}` };
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const { url: s3Url } = (await presignResp.json()) as { url: string };
-  if (!s3Url) throw new Error("Forge returned empty presign URL");
-
-  // 2. PUT file directly to S3
-  const blob =
-    typeof data === "string"
-      ? new Blob([data], { type: contentType })
-      : new Blob([data as any], { type: contentType });
-
-  const uploadResp = await fetch(s3Url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: blob,
-  });
-
-  if (!uploadResp.ok) {
-    throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
-  }
-
-  return { key, url: `/manus-storage/${key}` };
 }
 
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
@@ -76,22 +78,46 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   return { key, url: `/manus-storage/${key}` };
 }
 
-export async function storageGetSignedUrl(relKey: string): Promise<string> {
+export async function storageGetSignedUrl(relKey: string, timeoutMs = 30_000): Promise<string> {
   const { forgeUrl, forgeKey } = getForgeConfig();
   const key = normalizeKey(relKey);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  const getUrl = new URL("v1/storage/presign/get", forgeUrl + "/");
-  getUrl.searchParams.set("path", key);
+  try {
+    const getUrl = new URL("v1/storage/presign/get", forgeUrl + "/");
+    getUrl.searchParams.set("path", key);
+    const resp = await fetch(getUrl, {
+      headers: { Authorization: `Bearer ${forgeKey}` },
+      signal: controller.signal,
+    });
 
-  const resp = await fetch(getUrl, {
-    headers: { Authorization: `Bearer ${forgeKey}` },
-  });
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => resp.statusText);
+      throw new Error(`Storage signed URL failed (${resp.status}): ${msg}`);
+    }
 
-  if (!resp.ok) {
-    const msg = await resp.text().catch(() => resp.statusText);
-    throw new Error(`Storage signed URL failed (${resp.status}): ${msg}`);
+    const { url } = (await resp.json()) as { url: string };
+    if (!url) throw new Error("Forge returned an empty storage URL");
+    return url;
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  const { url } = (await resp.json()) as { url: string };
-  return url;
+export async function storageDownload(relKey: string, maxBytes: number, timeoutMs = 120_000): Promise<Buffer> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const url = await storageGetSignedUrl(relKey);
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Storage download failed (${response.status})`);
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > maxBytes) throw new Error("Stored PDF exceeds the configured size limit");
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length > maxBytes) throw new Error("Stored PDF exceeds the configured size limit");
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

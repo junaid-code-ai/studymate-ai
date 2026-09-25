@@ -106,7 +106,7 @@ export async function extractPdfText(data: Buffer): Promise<string> {
   }
 }
 
-async function summarizeChunk(chunk: string, index: number, total: number): Promise<string> {
+async function summarizeChunk(chunk: string, index: number, total: number, signal?: AbortSignal): Promise<string> {
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
@@ -124,6 +124,7 @@ async function summarizeChunk(chunk: string, index: number, total: number): Prom
       type: "json_schema",
       json_schema: { name: "study_summary_section", strict: true, schema: summarySchema },
     },
+    signal,
   });
 
   const parsed = parseJsonResponse<{ summary: string }>(response.choices[0]?.message?.content);
@@ -131,7 +132,7 @@ async function summarizeChunk(chunk: string, index: number, total: number): Prom
   return parsed.summary.trim();
 }
 
-async function synthesizeSummary(sectionSummaries: string[]): Promise<string> {
+async function synthesizeSummary(sectionSummaries: string[], signal?: AbortSignal): Promise<string> {
   const response = await invokeLLM({
     model: "gpt-5-mini",
     messages: [
@@ -149,6 +150,7 @@ async function synthesizeSummary(sectionSummaries: string[]): Promise<string> {
       type: "json_schema",
       json_schema: { name: "study_summary", strict: true, schema: summarySchema },
     },
+    signal,
   });
 
   const parsed = parseJsonResponse<{ summary: string }>(response.choices[0]?.message?.content);
@@ -156,23 +158,23 @@ async function synthesizeSummary(sectionSummaries: string[]): Promise<string> {
   return parsed.summary.trim();
 }
 
-export async function generateSummary(sourceText: string): Promise<string> {
+export async function generateSummary(sourceText: string, signal?: AbortSignal): Promise<string> {
   const chunks = chunkText(sourceText);
   if (chunks.length === 0) throw new Error("The source material is empty");
   if (chunks.length > MAX_SUMMARY_CHUNKS) {
     throw new Error("The source material is too large to process safely");
   }
-  if (chunks.length === 1) return summarizeChunk(chunks[0], 1, 1);
+  if (chunks.length === 1) return summarizeChunk(chunks[0], 1, 1, signal);
 
   const sectionSummaries: string[] = [];
   const batchSize = 4;
   for (let index = 0; index < chunks.length; index += batchSize) {
     const batch = await Promise.all(
-      chunks.slice(index, index + batchSize).map((chunk, batchIndex) => summarizeChunk(chunk, index + batchIndex + 1, chunks.length)),
+      chunks.slice(index, index + batchSize).map((chunk, batchIndex) => summarizeChunk(chunk, index + batchIndex + 1, chunks.length, signal)),
     );
     sectionSummaries.push(...batch);
   }
-  return synthesizeSummary(sectionSummaries);
+  return synthesizeSummary(sectionSummaries, signal);
 }
 
 export async function generateMcqs(sourceText: string): Promise<Mcq[]> {

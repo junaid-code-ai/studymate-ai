@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { documents, InsertDocument, users, InsertUser } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -78,7 +78,7 @@ export async function createDocument(input: InsertDocument) {
 
 export async function listDocumentsForUser(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) throw new Error("Database is not available");
   return db
     .select({
       id: documents.id,
@@ -86,6 +86,8 @@ export async function listDocumentsForUser(userId: number) {
       fileSize: documents.fileSize,
       summary: documents.summary,
       mcqsJson: documents.mcqsJson,
+      processingStatus: documents.processingStatus,
+      processingError: documents.processingError,
       createdAt: documents.createdAt,
       updatedAt: documents.updatedAt,
     })
@@ -115,4 +117,36 @@ export async function updateDocumentMcqs(documentId: number, mcqsJson: string) {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   await db.update(documents).set({ mcqsJson }).where(eq(documents.id, documentId));
+}
+
+export async function updateDocumentProcessing(
+  documentId: number,
+  values: {
+    processingStatus: string;
+    processingError?: string | null;
+    extractedText?: string | null;
+    summary?: string | null;
+    processingStartedAt?: Date | null;
+  },
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(documents).set(values).where(eq(documents.id, documentId));
+}
+
+export async function claimDocumentProcessing(documentId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+  const result = await db
+    .update(documents)
+    .set({ processingStatus: "processing", processingError: null, processingStartedAt: new Date() })
+    .where(
+      and(
+        eq(documents.id, documentId),
+        eq(documents.userId, userId),
+        or(ne(documents.processingStatus, "processing"), isNull(documents.processingStartedAt), lt(documents.processingStartedAt, staleBefore)),
+      ),
+    );
+  return Number((result as { affectedRows?: number }).affectedRows ?? 0) > 0;
 }
