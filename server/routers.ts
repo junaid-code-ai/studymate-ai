@@ -23,6 +23,24 @@ const STORAGE_PROCESS_TIMEOUT_MS = 45_000;
 const EXTRACTION_TIMEOUT_MS = 60_000;
 const SUMMARY_TIMEOUT_MS = 60_000;
 
+function createOperationLogger(stage: "upload" | "process") {
+  const operationId = crypto.randomUUID().slice(0, 8);
+  const startedAt = Date.now();
+  return {
+    operationId,
+    mark(event: string) {
+      console.info(`[StudyMate] ${stage} ${event}`, { operationId, elapsedMs: Date.now() - startedAt });
+    },
+    fail(error: unknown) {
+      console.error(`[StudyMate] ${stage} failed`, {
+        operationId,
+        elapsedMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : "unknown error",
+      });
+    },
+  };
+}
+
 function estimateBase64Bytes(value: string) {
   const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
   return Math.floor((value.length * 3) / 4) - padding;
@@ -122,6 +140,8 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        const log = createOperationLogger("upload");
+        log.mark("started");
         if (input.sizeBytes > MAX_FILE_SIZE || estimateBase64Bytes(input.dataBase64) > MAX_FILE_SIZE) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "This PDF exceeds the 50 MB limit. Choose a smaller file." });
         }
@@ -141,18 +161,22 @@ export const appRouter = router({
         if (data.subarray(0, 4).toString() !== "%PDF") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "That file does not look like a valid PDF." });
         }
+        log.mark("validated");
 
         const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 180) || "study-material.pdf";
         const fileKey = `${ctx.user.id}/documents/${crypto.randomUUID()}-${safeName}`;
         let stored: { key: string; url: string };
         try {
+          log.mark("storage started");
           stored = await storagePut(fileKey, data, "application/pdf", STORAGE_UPLOAD_TIMEOUT_MS);
+          log.mark("storage completed");
         } catch (error) {
-          console.error("[StudyMate] PDF storage failed", error);
+          log.fail(error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The PDF could not be uploaded. Please try again." });
         }
 
         try {
+          log.mark("database record started");
           const document = await createDocument({
             userId: ctx.user.id,
             fileName: input.fileName,
@@ -165,9 +189,10 @@ export const appRouter = router({
             processingStatus: "uploaded",
             processingError: null,
           });
+          log.mark("database record completed");
           return publicDocument(document);
         } catch (error) {
-          console.error("[StudyMate] Document record creation failed", error);
+          log.fail(error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The PDF was stored but could not be registered. Please try again." });
         }
       }),
@@ -175,6 +200,8 @@ export const appRouter = router({
     process: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
+        const log = createOperationLogger("process");
+        log.mark("started");
         const existing = await getDocumentForProcessing(input.id, ctx.user.id);
         if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Study document not found." });
         if (existing.processingStatus === "ready") return publicDocument(existing);
@@ -187,24 +214,32 @@ export const appRouter = router({
         }
 
         try {
+          log.mark("storage download started");
           const data = await storageDownload(existing.fileKey, MAX_FILE_SIZE, STORAGE_PROCESS_TIMEOUT_MS);
+          log.mark("storage download completed");
           if (data.subarray(0, 4).toString() !== "%PDF") throw new Error("Stored file is not a valid PDF");
+          log.mark("text extraction started");
           const extractedText = await withTimeout(extractPdfText(data), EXTRACTION_TIMEOUT_MS, "PDF text extraction timed out. Try splitting the PDF into smaller files.");
+          log.mark("text extraction completed");
           if (!extractedText.trim()) throw new Error("We could not find readable text in that PDF. Scanned PDFs are not supported in V1.");
           if (extractedText.length > MAX_PROCESSABLE_TEXT_LENGTH) throw new Error("This PDF contains more readable text than V1 can safely process. Try splitting it into smaller PDFs.");
 
+          log.mark("summary generation started");
           const summary = await withAbortableTimeout(
             (signal) => generateSummary(extractedText, signal),
             SUMMARY_TIMEOUT_MS,
             "Summary generation timed out. The PDF is saved; try again or split it into smaller files.",
           );
+          log.mark("summary generation completed");
+          log.mark("database save started");
           await updateDocumentProcessing(existing.id, { processingStatus: "ready", processingError: null, extractedText, summary, processingStartedAt: null });
+          log.mark("database save completed");
           const ready = await getDocumentForUser(existing.id, ctx.user.id);
           if (!ready) throw new Error("Processed document could not be reloaded");
           return publicDocument(ready);
         } catch (error) {
           const message = error instanceof Error ? error.message : "Document processing failed.";
-          console.error("[StudyMate] Document processing failed", error);
+          log.fail(error);
           try {
             await updateDocumentProcessing(existing.id, {
               processingStatus: "failed",
